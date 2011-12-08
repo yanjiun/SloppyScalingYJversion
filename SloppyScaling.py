@@ -1,4 +1,5 @@
 import numpy
+import scipy
 import pylab
 import copy
 import time
@@ -57,6 +58,7 @@ class ScalingTheory:
                  scalingX = 'X', scalingY = 'Y', scalingW = None, \
                  scalingXTeX = r'${\cal{X}}$', \
                  scalingYTeX = r'${\cal{Y}}$', \
+                 scalingWTeX = r'${\cal{X}}$',\
                  title = 'Fit', scalingTitle = 'Scaling Collapse',
                  Xname='X', XscaledName = 'Xs', Yname='Y', WscaledName = 'Ws',\
                  XnameTeX = r'${\cal{X}}$', YnameTeX = r'${\cal{Y}}$',\
@@ -84,6 +86,7 @@ class ScalingTheory:
         self.scalingW = scalingW
         self.scalingXTeX = scalingXTeX
         self.scalingYTeX = scalingYTeX
+        self.scalingWTeX = scalingWTeX
         self.title = title
         self.scalingTitle = scalingTitle
         self.normalization = normalization
@@ -142,6 +145,25 @@ class ScalingTheory:
             exec(self.WscaledName + '=' +self.scalingW)
         exec("XScale = " + self.scalingX)
         return XScale
+
+    def ScaleW(self, X, parameterValues,independentValues):
+        """
+        rescales X acording to Wscaled form
+        """
+        if self.scalingW is not None:
+            exec(self.parameterNames0 + " = parameterValues")
+            exec(self.independentNames + " = independentValues")
+            if self.fixParameter:
+                for par, val in self.fixedParameters:
+                    exec(par + " = " + str(val))
+            exec(self.Xname + " = X")
+            exec("Wscale = " + self.scalingW)
+        else:
+            print "WARNING: 2nd scaling variable does not exist, please define"
+            exec("Wscale = X")
+
+        return Wscale
+
 
     def ScaleY(self, X, Y, parameterValues, independentValues):
         """
@@ -504,7 +526,7 @@ class Model:
         cost = self.Cost(parameterValues)
         return 1.- cost/sst
         
-    def getLabel(self, names, values, withRescale = True, pow10first=False, sigma = 0.45):
+    def getLabel(self, names, values, withRescale = False, pow10first=False, sigma = 0.45):
         """
         Get the Labels to be plotted. 
         """
@@ -518,12 +540,12 @@ class Model:
 
         if withRescale:
             if len(values)==2:
-                lb = r"$L, k =$"
+                lb = names + "="
                 lb += str(values[0])
                 if pow10first:
-                    lb += r" ,$10^{%d}$" %(int(round(numpy.log10(1.0*k/L))))
+                    lb += r", $10^{%d}$" %(int(round(numpy.log10(1.0*k/L))))
                 else:
-                    lb += " ,%.3e" %(1.0*k/L)
+                    lb += ", %.3e" %(1.0*k/L)
             if len(values)==3:
                 lb = r"$k, W_s =$"
                 #lb += str(L)
@@ -571,13 +593,13 @@ class Model:
         return tuple(out)
         
     def PlotFunctions(self, parameterValues=None, plotCollapse = False, 
-                fontSizeLabels = 24, fontSizeLegend=12, pylabLegendLoc=0, interactive=True, pow10first=False,plotPoints=100):
+                fontSizeLabels = 24, fontSizeLegend=12, pylabLegendLoc=0, interactive=True, pow10first=False,plotPoints=100,theory=True, collapseAxis='Xscaled'):
         if parameterValues is None:
             parameterValues = self.theory.initialParameterValues
-        # XXX Having problems with pylab.ioff()
-        if not interactive:
-            pylab.ioff()
-            pylab.clf()
+        # XXX Having problems with pylab.ioff(), ipython command shell freezes
+        #if not interactive:
+        #    pylab.ioff()
+        #    pylab.clf()
         ax0 = [1.e99,0,1.e99,0]
         if self.data.linlog == 'log':
             minY = 1.e99
@@ -620,8 +642,14 @@ class Model:
                 Ytheory = self.theory.ScaleY(Xtheory, Ytheory, \
                                              parameterValues, independentValues)
                 # Then rescale X too
-                X = self.theory.ScaleX(X, parameterValues, independentValues)
-                Xtheory = self.theory.ScaleX(Xtheory,parameterValues,independentValues)
+                if collapseAxis=='Xscaled':
+                    X = self.theory.ScaleX(X, parameterValues, independentValues)
+                    Xtheory = self.theory.ScaleX(Xtheory,parameterValues,independentValues)
+                elif collapseAxis=='Wscaled':
+                    X = self.theory.ScaleW(X, parameterValues, independentValues)
+                    Xtheory = self.theory.ScaleW(Xtheory,parameterValues,independentValues)
+                else:
+                    print "please specify which axis to collapse, we are plotting default x now"
             # Avoid error bars crossing zero on log-log plots
             if self.data.linlog == 'log':
                 errorBarDown = errorBar * (errorBar < Y) + (Y -minY) * (errorBar > Y)
@@ -642,15 +670,16 @@ class Model:
                                'axes.labelsize':24,\
                                'legend.fontsize':20,
                                'legend.columnspacing':1.5,
-                               'figure.figsize':[10.,10.],\
+                               'figure.figsize':[10.,8.],\
                                'text.usetex':False,
                                })
             # Note use figure.figsize:[10,10] for legend on bottom plots
+            # [10,8] for regular plots
             font = {'family':'serif',
                     'serif':'Times New Roman'}
             pylab.rc('font',**font)
-            #pylab.axes([0.15,0.15,0.95-0.15,0.90-0.125])
-            pylab.axes([0.15,0.35,0.95-0.15,0.95-0.35]) # for legend on bottom
+            pylab.axes([0.15,0.15,0.95-0.15,0.90-0.125])
+            #pylab.axes([0.15,0.35,0.95-0.15,0.95-0.35]) # for legend on bottom
             #####################
             if self.data.linlog == 'log' or self.data.linlog == 'lin':
                 if self.data.linlog == 'log':
@@ -670,17 +699,21 @@ class Model:
                     for i, Ax in enumerate(axis_dep):
                         ax0[i] = i%2 and max(ax0[i],Ax) or min(ax0[i],Ax)
                 # Plot the theory function
-                plot_fn(Xtheory,Ytheory,pointType[0])
+                if theory:
+                    plot_fn(Xtheory,Ytheory,pointType[0])
             else:
                 print "Format " + self.data.linlog + \
                         " not supported yet in PlotFits"
 
         #print "range of axes are:", tuple(ax0)
         pylab.axis(tuple(ax0))
-        #pylab.legend(loc=pylabLegendLoc, ncol=2)
-        pylab.legend(loc=(-0.16,-0.52),ncol=3)
+        pylab.legend(loc=pylabLegendLoc, ncol=2)
+        #pylab.legend(loc=(-0.16,-0.52),ncol=3)
         if plotCollapse:
-            pylab.xlabel(self.theory.scalingXTeX, fontsize=fontSizeLabels)
+            if collapseAxis =='Xscaled':
+                pylab.xlabel(self.theory.scalingXTeX, fontsize=fontSizeLabels)
+            elif collapseAxis == "Wscaled":
+                pylab.xlabel(self.theory.scalingWTeX, fontsize=fontSizeLabels)
             pylab.ylabel(self.theory.scalingYTeX, fontsize=fontSizeLabels)
             #pylab.title(self.theory.scalingTitle)
         else:
@@ -688,17 +721,19 @@ class Model:
             pylab.ylabel(self.theory.YnameTeX, fontsize=fontSizeLabels)
             #pylab.title(self.theory.title, fontsize=fontSizeLabels)
         # XXX Turn on if ioff used pylab.ion()
-        pylab.ion()
-        pylab.show()
+        #pylab.ion()
+        #pylab.show()
         
     def PlotResiduals(self, parameterValues=None, \
                       fontSizeLabels = 18, pylabLegendLoc=0,pow10first=False):
         if parameterValues is None:
             parameterValues = self.theory.initialParameterValues
-        pylab.ioff()
-        pylab.clf()
+        #pylab.ioff()
+        #pylab.clf()
         residuals = self.Residual(parameterValues, dictResidual=True)
         x0 = 0
+        pylab.rcParams.update({'figure.figsize':[10.,8.]})
+        pylab.axes([0.15,0.15,0.95-0.15,0.90-0.125]) 
         for independentValues in self.data.experiments:
         #for independentValues in sorted(residuals):  
             res = residuals[independentValues]
@@ -711,8 +746,50 @@ class Model:
         pylab.ylabel("Weighted residuals")
         pylab.axhline(y=0,color='k')
         pylab.legend(loc=pylabLegendLoc, ncol=1)
-        pylab.ion()
-        pylab.show()
+        #pylab.ion()
+        #pylab.show()
+
+    def PlotEnsemblePredictions(self,ens, sampling_freq=10, fontSizeLabels=24, fontSizeLegend=20,rescale=1.,pow10first=False):
+        """
+        This function plots the fit and the range of predictions given by the parameter ensemble input.
+        The sampling_freq option avoids sampling all of the ensemble points for faster plotting
+        Rescale is an option for when the sampling is done at a lower temperature. 
+        """
+        pylab.figure()
+	pylab.axes([0.15,0.35,0.95-0.15,0.95-0.35])
+	data_experiments = self.data.experiments
+        for independentValues in data_experiments:
+            Xdata = self.data.X[independentValues]
+            Ydata = self.data.Y[independentValues]
+	    Xtheory = scipy.logspace(scipy.log10(min(Xdata)),scipy.log10(max(Xdata)),num=100)
+	    pointType = self.data.pointType[independentValues]
+	    errorBar = self.data.errorBar[independentValues]
+	    mean_theory = scipy.zeros(len(Xtheory))
+	    std_theory = scipy.zeros(len(Xtheory))
+            for i in range(0, num_to_count):
+		    ens_theory = self.theory.Y(Xtheory,ens[i*sampling_freq],independentValues)
+		    mean_theory += ens_theory
+		    std_theory += (ens_theory)**2
+	    mean_theory = mean_theory/(1.0*num_to_count)
+	    std_theory = scipy.sqrt((std_theory-num_to_count*mean_theory**2)/(num_to_count-1.))
+	    pylab.loglog(Xdata,Ydata,pointType[1])
+	    lb = self.getLabel(self.theory.independentNames,independentValues,pow10first=pow10first)
+	    pylab.errorbar(Xdata,Ydata, yerr=errorBar, fmt=pointType,label=lb)
+	    pylab.loglog(Xtheory,mean_theory,pointType[0])
+	    axis_dep=self.getAxis(Xdata,Ydata)
+	    #upper_bound = mean_theory+std_theory
+	    #lower_bound = mean_theory-std_theory
+	    upper_bound = scipy.exp(scipy.log(mean_theory) + scipy.log(1.+std_theory/mean_theory)*rescale)
+	    lower_bound = scipy.exp(scipy.log(mean_theory)+scipy.log(1.-std_theory/mean_theory)*rescale)
+	    for i in range(0, len(lower_bound)):
+		    if lower_bound[i]<=0:
+			    lower_bound[i]=10.**(-16)
+	    pylab.fill_between(Xtheory,lower_bound,y2=upper_bound,color=pointType[0],alpha=0.2)
+
+	    for i, Ax in enumerate(axis_dep):
+		    ax0[i] =i%2 and max(ax0[i],Ax) or min(ax0[i],Ax)
+	pylab.axis(tuple(ax0))
+	pylab.legend(loc=(-0.15,-0.52),ncol=3)
         
     def BestFit(self,initialParameterValues = None, method = None, fixedParams=None):
         """
@@ -765,8 +842,6 @@ class Model:
         end_time = time.time()
         print "fitting took (mins)", (end_time-start_time)/60.
         print "number of function evals:", f_counter
-
-        
         
         if fixedParams:
             outputParameterValues = self.MergeFixedAndVariableParams(fixedParams,out[0])
@@ -1060,6 +1135,14 @@ class CompositeModel:
             model.PlotFunctions(parameterValues, fontSizeLabels=fontSizeLabels, \
                                 pylabLegendLoc=pylabLegendLoc, plotCollapse = True,interactive=interactive,pow10first=pow10first)
             pylab.figure(figNum)
+
+    def PlotEnsemblePredictions(self,ens,figNumStart=1,fontSizeLabels=24,fontSizeLegend=18,sampling_freq=10.,rescale=1., pow10first=False):
+        figNum=figNumStart-1
+        for model in self.Models.values():
+            figNum+=1
+            pylab.figure(figNum)
+            model.PlotEnsemblePredictions(self,ens,sampling_freq=sampling_freq, fontSizeLabels=fontSizeLabels,fontSizeLegend=fontSizeLegend,rescale=rescale,pow10first=False)
+            pylab.figure(figNum)
             
     def BestFit(self,initialParameterValues=None, method=None , fixedParams=None):
         """
@@ -1094,7 +1177,7 @@ class CompositeModel:
         #d = numpy.ones(len(initialParameterValues))
         start_time = time.time()
         if method is None or method == 'lm':
-            out = scipy.optimize.minpack.leastsq(self.Residual,initialParameterValues,full_output=1, ftol=1.e-16)
+            out = minpack.leastsq(self.Residual,initialParameterValues,full_output=1, ftol=1.e-16)
         elif method == 'boldAccel':
             initialParameterValues=numpy.array(initialParameterValues)
             out = BoldAccel.leastsq(self.Residual,None,initialParameterValues,gtol=1e-8,xtol=1.49e-8,ftol=1e-16,full_output=1,ibold=0,verbose=True)
